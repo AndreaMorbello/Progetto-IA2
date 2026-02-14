@@ -1,0 +1,316 @@
+
+---
+
+## 2. Documento LaTeX
+
+```latex
+\documentclass[12pt,a4paper]{article}
+
+% --- Pacchetti ---
+\usepackage[utf8]{inputenc}
+\usepackage[italian]{babel}
+\usepackage{geometry}
+\geometry{margin=2.5cm}
+\usepackage{amsmath}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{hyperref}
+\usepackage{enumitem}
+\usepackage{float}
+
+\title{Predizione del Rating ELO del Giocatore Bianco\\nelle Partite di Scacchi Online}
+\author{Andrea Morbello, Venezia, Dicapua}
+\date{Universit\`a Sapienza di Roma --- Esame IA2}
+
+\begin{document}
+
+\maketitle
+\tableofcontents
+\newpage
+
+% ============================================================================
+\section{Introduzione}
+% ============================================================================
+
+L'obiettivo di questo progetto \`e sviluppare un modello di regressione in grado di stimare il punteggio ELO del giocatore con i pezzi bianchi a partire da feature estratte da una singola partita di scacchi online.
+
+L'idea nasce dalla serie \textit{Guess The Elo} di GothamChess, in cui un esperto cerca di indovinare il livello dei giocatori osservando una partita. In questo progetto formalizziamo lo stesso compito con tecniche di Machine Learning.
+
+\subsection{Limiti e ipotesi}
+
+\begin{enumerate}[label=\textbf{\Alph*.}]
+    \item \textbf{Rumore nei dati.} La performance in una singola partita pu\`o variare significativamente rispetto al livello medio del giocatore. Inoltre il modello baseline utilizza feature non direttamente indicative della qualit\`a del gioco. Non ci aspettiamo quindi un modello estremamente preciso.
+
+    \item \textbf{Information leakage parziale.} La feature \texttt{black\_rating} \`e altamente correlata con il target a causa del matchmaking: i siti di scacchi accoppiano giocatori con ELO simile. Il modello avr\`a quindi struttura approssimabile a:
+    \[
+    \texttt{white\_rating} \approx \texttt{black\_rating} \pm f(\text{altre feature})
+    \]
+    dove $f$ \`e una funzione correttiva.
+
+    \item \textbf{Partite rated vs non-rated.} Ipotizziamo inizialmente una differenza di performance nelle partite non classificate (poi falsificata dall'analisi).
+\end{enumerate}
+
+\subsection{Note sul target}
+
+Il target \texttt{white\_rating} rappresenta il punteggio ELO del giocatore bianco \emph{immediatamente prima} dell'inizio della partita, non dopo la sua conclusione. L'obiettivo non \`e invertire l'algoritmo ELO, bens\`i utilizzare il punteggio come proxy del livello di abilit\`a del giocatore.
+
+% ============================================================================
+\section{Dataset}
+% ============================================================================
+
+Il dataset proviene da Kaggle\footnote{\url{https://www.kaggle.com/datasets/datasnaek/chess}} e contiene \textbf{20.058 partite} disputate sulla piattaforma Lichess.
+
+\subsection{Feature originali}
+
+\begin{table}[H]
+\centering
+\begin{tabular}{@{}llp{7.5cm}@{}}
+\toprule
+\textbf{Feature} & \textbf{Tipo} & \textbf{Descrizione} \\
+\midrule
+id & stringa & Identificativo univoco della partita \\
+rated & booleano & Partita classificata (True/False) \\
+created\_at & timestamp & Inizio partita (Unix time) \\
+last\_move\_at & timestamp & Fine partita (Unix time) \\
+turns & intero & Numero di turni completi \\
+victory\_status & categorica & Modalit\`a di conclusione (mate, resign, outoftime, draw) \\
+winner & categorica & Vincitore (white, black, draw) \\
+increment\_code & stringa & Formato temporale (es. ``10+0'') \\
+white\_id & stringa & Username giocatore bianco \\
+white\_rating & intero & \textbf{TARGET} --- ELO giocatore bianco (pre-partita) \\
+black\_id & stringa & Username giocatore nero \\
+black\_rating & intero & ELO giocatore nero (pre-partita) \\
+moves & stringa & Sequenza completa delle mosse (notazione SAN) \\
+opening\_eco & stringa & Codice ECO dell'apertura \\
+opening\_name & stringa & Nome dell'apertura \\
+opening\_ply & intero & Numero di ply dell'apertura \\
+\bottomrule
+\end{tabular}
+\caption{Feature originali del dataset.}
+\end{table}
+
+% ============================================================================
+\section{Feature Engineering}
+% ============================================================================
+
+Dalla colonna \texttt{moves} sono state estratte 8 nuove feature, calcolate separatamente per bianco e nero:
+
+\begin{table}[H]
+\centering
+\begin{tabular}{@{}llp{8cm}@{}}
+\toprule
+\textbf{Feature} & \textbf{Tipo} & \textbf{Descrizione} \\
+\midrule
+white\_captures\_rate & numerica & Catture del bianco / mosse del bianco \\
+black\_captures\_rate & numerica & Catture del nero / mosse del nero \\
+white\_checks\_rate & numerica & Scacchi dati dal bianco / mosse del bianco \\
+black\_checks\_rate & numerica & Scacchi dati dal nero / mosse del nero \\
+white\_promotions\_rate & numerica & Promozioni del bianco / mosse del bianco \\
+black\_promotions\_rate & numerica & Promozioni del nero / mosse del nero \\
+white\_castled & binaria & Il bianco ha arroccato (0/1) \\
+black\_castled & binaria & Il nero ha arroccato (0/1) \\
+\bottomrule
+\end{tabular}
+\caption{Feature estratte dalla colonna \texttt{moves}.}
+\end{table}
+
+La colonna \texttt{moves} \`e stata successivamente rimossa dal dataframe.
+
+% ============================================================================
+\section{Preprocessing}
+% ============================================================================
+
+\subsection{Rimozione duplicati}
+
+Sono stati individuati 813 ID duplicati. Dopo aver verificato che le righe fossero semanticamente identiche (le uniche differenze riguardavano i timestamp), sono state rimosse le righe ridondanti.
+
+\subsection{Rimozione colonne non necessarie}
+
+Sono state eliminate: \texttt{id}, \texttt{white\_id}, \texttt{black\_id}, \texttt{opening\_name}, \texttt{moves}.
+
+\subsection{Trasformazioni}
+
+\begin{itemize}
+    \item \texttt{created\_at} e \texttt{last\_move\_at} $\rightarrow$ \texttt{duration\_seconds} (durata in secondi)
+    \item \texttt{increment\_code} $\rightarrow$ \texttt{base\_time} + \texttt{increment\_time} (split su ``+'')
+    \item \texttt{opening\_eco} $\rightarrow$ \texttt{opening\_category} (solo prima lettera: A--E)
+    \item Dummy encoding di \texttt{rated}, \texttt{victory\_status}, \texttt{winner}, \texttt{opening\_category}
+\end{itemize}
+
+\subsection{Split dei dati}
+
+Il dataset \`e stato diviso in training set (80\%) e test set (20\%) con \texttt{random\_state=42}, \emph{prima} dell'analisi esplorativa per evitare data leakage.
+
+Dopo il preprocessing il dataframe contiene \textbf{19.113 righe} e \textbf{29 colonne}.
+
+% ============================================================================
+\section{Analisi Esplorativa}
+% ============================================================================
+
+L'analisi esplorativa \`e stata condotta esclusivamente sul training set.
+
+\subsection{Correlazione white\_rating / black\_rating}
+
+La correlazione di Pearson risulta $r = 0.6358$, confermando l'ipotesi sul matchmaking. Con $R^2 \approx 0.40$, il rating dell'avversario spiega solo il 40\% della varianza del target.
+
+\subsection{Rated vs Non-Rated}
+
+\textbf{Ipotesi falsificata}: non emerge differenza significativa tra partite rated (media 1599.4) e non-rated (media 1595.4). L'unica differenza \`e una maggiore varianza nelle non-rated (std 316.6 vs 283.2).
+
+\subsection{Distribuzione del target}
+
+La distribuzione di \texttt{white\_rating} \`e quasi normale (skewness $\approx 0.30$, kurtosis $\approx 0.03$). Non sono necessarie trasformazioni.
+
+\subsection{Correlazioni con il target}
+
+Le feature pi\`u correlate con \texttt{white\_rating}:
+
+\begin{table}[H]
+\centering
+\begin{tabular}{@{}lr@{}}
+\toprule
+\textbf{Feature} & \textbf{r (Pearson)} \\
+\midrule
+black\_rating & +0.64 \\
+opening\_ply & +0.28 \\
+turns & +0.13 \\
+black\_checks\_rate & --0.14 \\
+black\_captures\_rate & --0.10 \\
+\bottomrule
+\end{tabular}
+\caption{Feature con correlazione $|r| > 0.10$ rispetto al target.}
+\end{table}
+
+\subsection{Feature categoriche}
+
+\begin{itemize}
+    \item \textbf{Opening Category}: differenza di 231 punti ELO tra categoria E (Difese Indiane, mediana 1802) e C (Partite aperte, mediana 1532)
+    \item \textbf{Arrocco}: chi arrocca ha mediana $\sim$110--134 punti superiore
+    \item \textbf{Victory Status}: giocatori pi\`u forti tendono ad abbandonare (resign) o pareggiare (draw) piuttosto che subire matto
+    \item \textbf{Rated}: nessuna differenza significativa $\rightarrow$ feature esclusa
+\end{itemize}
+
+\subsection{Qualit\`a dei dati}
+
+\begin{itemize}
+    \item \texttt{duration\_seconds}: 48.4\% dei valori \`e pari a 0 (bug del dataset) $\rightarrow$ feature esclusa
+    \item 256 partite con meno di 5 turni (1.7\%) $\rightarrow$ rimosse
+    \item Outlier nei rating: $<1\%$ $\rightarrow$ mantenuti
+\end{itemize}
+
+% ============================================================================
+\section{Selezione delle Feature}
+% ============================================================================
+
+Sulla base dell'EDA, sono state rimosse 9 feature dal dataset:
+
+\begin{table}[H]
+\centering
+\begin{tabular}{@{}lp{8.5cm}@{}}
+\toprule
+\textbf{Feature rimossa} & \textbf{Motivazione} \\
+\midrule
+duration\_seconds & $r = +0.01$, 48.4\% valori corrotti \\
+base\_time & $r = -0.07$ \\
+increment\_time & $r = -0.02$ \\
+white\_captures\_rate & $r = +0.03$ \\
+white\_checks\_rate & $r = -0.04$ \\
+white\_promotions\_rate & $r \approx 0$ \\
+black\_promotions\_rate & $r \approx 0$ \\
+rated\_True & $\Delta$ mediana = 2 punti \\
+rated\_False & Complementare a rated\_True \\
+\bottomrule
+\end{tabular}
+\caption{Feature rimosse dopo l'analisi esplorativa.}
+\end{table}
+
+Il dataset finale contiene \textbf{20 colonne} (19 feature + target).
+
+% ============================================================================
+\section{Modelli}
+% ============================================================================
+
+\subsection{Baseline naive}
+
+\begin{enumerate}
+    \item \textbf{Media White Rating}: predice sempre la media del target nel training set. Per definizione produce $R^2 = 0$ e serve come riferimento minimo.
+    \item \textbf{Black Rating}: predice \texttt{white\_rating = black\_rating}. Sfrutta il matchmaking senza alcun addestramento.
+\end{enumerate}
+
+\subsection{Regressioni lineari}
+
+Tutti i modelli utilizzano una pipeline con \texttt{StandardScaler} + regressore:
+
+\begin{enumerate}
+    \item \textbf{Linear Regression}: regressione OLS senza regolarizzazione
+    \item \textbf{Ridge Regression} ($\alpha = 1.0$): regolarizzazione L2
+    \item \textbf{Lasso Regression} ($\alpha = 1.0$): regolarizzazione L1
+\end{enumerate}
+
+% ============================================================================
+\section{Risultati}
+% ============================================================================
+
+\subsection{Confronto delle metriche}
+
+\begin{table}[H]
+\centering
+\begin{tabular}{@{}lccc@{}}
+\toprule
+\textbf{Modello} & \textbf{MAE} & \textbf{RMSE} & $\mathbf{R^2}$ \\
+\midrule
+Media WR & $\sim$290 & $\sim$290 & 0.0000 \\
+Black Rating & $\sim$190 & $\sim$250 & $\sim$0.40 \\
+\midrule
+Linear Regression & 152.50 & 204.14 & 0.5065 \\
+Ridge ($\alpha=1.0$) & 152.50 & 204.14 & 0.5065 \\
+Lasso ($\alpha=1.0$) & 152.58 & 204.34 & 0.5055 \\
+\bottomrule
+\end{tabular}
+\caption{Confronto delle performance di tutti i modelli.}
+\end{table}
+
+\subsection{Interpretazione}
+
+I modelli lineari migliorano significativamente rispetto ai baseline naive:
+\begin{itemize}
+    \item Rispetto alla media: $R^2$ passa da 0 a $\sim$0.50 ($+50$ punti percentuali)
+    \item Rispetto al black\_rating: $R^2$ passa da $\sim$0.40 a $\sim$0.50 ($+10$ punti percentuali)
+\end{itemize}
+
+Le tre regressioni lineari producono risultati quasi identici. La regolarizzazione (Ridge, Lasso) non migliora le performance, suggerendo che il limite osservato \`e nella capacit\`a espressiva del modello lineare, non in fenomeni di overfitting o multicollinearit\`a.
+
+Il RMSE di $\sim$204 punti corrisponde a circa l'11\% del range totale dei rating (784--2622).
+
+% ============================================================================
+\section{Conclusioni}
+% ============================================================================
+
+\subsection{Risultati principali}
+
+\begin{itemize}
+    \item Il modello lineare spiega circa il 50\% della varianza del rating ELO a partire da feature estratte da una singola partita
+    \item La feature pi\`u predittiva \`e \texttt{black\_rating} ($r = 0.64$), coerente con il meccanismo di matchmaking
+    \item L'ipotesi sulla differenza tra partite rated e non-rated \`e stata falsificata dall'analisi
+    \item Le aperture (categoria ECO) e l'arrocco sono feature sorprendentemente informative
+\end{itemize}
+
+\subsection{Limiti}
+
+\begin{itemize}
+    \item Il modello utilizza feature aggregate, non la qualit\`a delle singole mosse
+    \item La forte dipendenza da \texttt{black\_rating} rappresenta un information leakage parziale
+    \item I modelli lineari raggiungono un plateau, suggerendo relazioni non lineari nei dati
+    \item Il 48.4\% dei valori di \texttt{duration\_seconds} \`e corrotto, limitando l'utilizzo di quella feature
+\end{itemize}
+
+\subsection{Sviluppi futuri}
+
+\begin{itemize}
+    \item \textbf{Modelli non lineari}: Random Forest, Gradient Boosting (XGBoost, LightGBM) per catturare relazioni complesse
+    \item \textbf{Cross-validation}: stima pi\`u robusta delle performance
+    \item \textbf{Feature engineering avanzato}: analisi posizionale delle mosse, valutazione con engine (Stockfish)
+    \item \textbf{Hyperparameter tuning}: grid search o Bayesian optimization per $\alpha$ in Ridge/Lasso
+\end{itemize}
+
+\end{document}
