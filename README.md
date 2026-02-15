@@ -54,7 +54,7 @@ La valutazione dei modelli è stata fatta attravero MAE, RMSE e R²
 
 ## Conclusioni
 Come inizialmente ipotizzato *black_rating* è la feature più informativa, ciononostante i risultati ottenuti mostrano il contributo delle altre features ad una stima più accurata.
-I modelli lineari presentano prestazioni nettamente superiori rispetto alla baseline, spiegando circa il 50% della variabilità del white_rating
+I modelli lineari presentano prestazioni nettamente superiori rispetto alla baseline, spiegando circa il 50% della varianza del white_rating
 La regolarizzazione, però, quantomeno con α = 1.0, non ha prodotto risultati significativamente diversi, il che suggerisce che probabilmente il plateau nella performance dei modelli lineari è dovuto al loro limite espressivo piuttosto che ad overfitting o ad instabilità delle features.
 
 ## Sviluppi futuri
