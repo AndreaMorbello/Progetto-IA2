@@ -32,16 +32,16 @@ Le variabili numeriche sono poi state standardizzate tramite StandardScaler.
 Tutte le trasformazioni sono state implementate all’interno di una pipeline, garantendo che il fitting delle trasformazioni avvenisse unicamente sui dati di training e venisse poi applicato in modo coerente al test set.
 
 ## Modelli testati
-Per valutare successivamente altri modelli sono stati presi 2 modelli come baseline naive:
+2 modelli implementati come baseline naive:
 1. Il primo si limita a restituire come output la media della variabile target
-2. Il secondo utilizza "black_rating" come unica feature
+2. Il secondo utilizza *black_rating* come unica feature
 
 Dopodiché sono stati addestrati 3 modelli lineari:
 1. Linear Regression
 2. Ridge Regression (α = 1.0)
 3. Lasso Regression (α = 1.0)
 
-##Risultati
+## Risultati
 La valutazione dei modelli è stata fatta attravero MAE, RMSE e R²
 
 | Modello                  |    MAE |   RMSE |     R2 |
@@ -52,13 +52,13 @@ La valutazione dei modelli è stata fatta attravero MAE, RMSE e R²
 | Ridge Regression          |  152.50 | 204.14 | 0.5065 |
 | Lasso Regression          |  152.58 | 204.34 | 0.5055 |
 
-##Conclusioni
+## Conclusioni
 Come inizialmente ipotizzato *black_rating* è la feature più informativa, ciononostante i risultati ottenuti mostrano il contributo delle altre features ad una stima più accurata.
 I modelli lineari presentano prestazioni nettamente superiori rispetto alla baseline, spiegando circa il 50% della variabilità del white_rating
 La regolarizzazione, però, quantomeno con α = 1.0, non ha prodotto risultati significativamente diversi, il che suggerisce che probabilmente il plateau nella performance dei modelli lineari è dovuto al loro limite espressivo piuttosto che ad overfitting o ad instabilità delle features.
 
-##Sviluppi futuri
-- L'analisi dei residui mostra possibili pattern non lineari che modelli più complessi, come Random Forest o Gradient Boosting, potrebbero essere in grado di catturare
+## Sviluppi futuri
+- L'analisi dei residui mostra possibili pattern non lineari che modelli più complessi, come *Random Forest* o Gradient Boosting, potrebbero essere in grado di catturare
 - Cross-validation
 - Feature engineering avanzato: analisi approfondita delle mosse tramite motori scacchistici
 - Hyperparameter tuning: ottimizzazione dell'iperparametro α nei modelli di regressione Ridge e Lasso
